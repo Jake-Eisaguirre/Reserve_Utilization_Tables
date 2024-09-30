@@ -86,7 +86,7 @@ utl_df <- data.frame()
       ungroup() %>% 
       select(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE,
              PAIRING_DATE, TO_DATE, PAIRING_POSITION, BID_PERIOD, BASE) %>% 
-      mutate(EQUIPMENT = NA)
+      mutate(EQUIPMENT = "NA")
     
     utl_df <- rbind(fa_ut_rlv, utl_df)
     
