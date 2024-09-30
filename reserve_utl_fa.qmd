@@ -77,7 +77,7 @@ utl_df <- data.frame()
     fa_ut_rlv <- master_history_raw %>% 
       ungroup() %>% 
       filter(CREW_INDICATOR == "FA") %>% 
-      filter(TRANSACTION_CODE %in% c("ACR", "RSV", "RLV", "ASN", "BSN", "BRD")) %>%
+      filter(TRANSACTION_CODE %in% c("RSV", "RLV")) %>%
       mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>%
       filter(update_dt < update_dt_rlv) %>%
       group_by(CREW_ID, PAIRING_DATE, TRANSACTION_CODE) %>%
@@ -85,7 +85,8 @@ utl_df <- data.frame()
       filter(!duplicated(temp_id)) %>%
       ungroup() %>% 
       select(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE,
-             PAIRING_DATE, TO_DATE, PAIRING_POSITION, BID_PERIOD, BASE)
+             PAIRING_DATE, TO_DATE, PAIRING_POSITION, BID_PERIOD, BASE) %>% 
+      mutate(EQUIPMENT = NA)
     
     utl_df <- rbind(fa_ut_rlv, utl_df)
     
