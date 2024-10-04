@@ -17,7 +17,6 @@ previous_bid_period <- substr(as.character((raw_date)), 1, 7)
 update_dt_rlv <- paste0(substr(as.character((raw_date)), 1, 7), "-25 00:00:00")
 
 
-
 tryCatch({
   db_connection <- DBI::dbConnect(odbc::odbc(),
                                   Driver="SnowflakeDSIIDriver",

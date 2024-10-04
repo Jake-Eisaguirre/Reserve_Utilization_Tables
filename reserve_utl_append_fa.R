@@ -45,7 +45,7 @@ master_history_raw <- dbGetQuery(db_connection, q_master_history) %>%
 fa_ut_rlv <- master_history_raw %>% 
   ungroup() %>% 
   filter(CREW_INDICATOR == "FA") %>% 
-  filter(TRANSACTION_CODE %in% c("ACR", "RSV", "RLV", "ASN", "BSN", "BRD")) %>%
+  filter(TRANSACTION_CODE %in% c("RSV", "RLV")) %>%
   mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>%
   filter(update_dt < update_dt_rlv) %>%
   group_by(CREW_ID, PAIRING_DATE, TRANSACTION_CODE) %>%

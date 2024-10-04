@@ -66,6 +66,19 @@ utl_df <- data.frame()
               PAIRING_DATE, TO_DATE, PAIRING_POSITION, BID_PERIOD, BASE)
      
      
+     pilot_ut_asn <- master_history_raw %>% 
+       ungroup() %>% 
+       filter(CREW_INDICATOR == "P") %>% 
+       filter(TRANSACTION_CODE %in% c("ASN")) %>% 
+       mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>%
+       group_by(CREW_ID, PAIRING_DATE, TRANSACTION_CODE) %>%
+       mutate(temp_id = cur_group_id()) %>% 
+       filter(!duplicated(temp_id)) %>% 
+       ungroup() %>% 
+       select(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_NO,
+              PAIRING_DATE, TO_DATE, PAIRING_POSITION, BID_PERIOD, BASE)
+     
+     
      
      q_master_sched <- paste0("select CREW_ID, EFFECTIVE_FROM_DATE, EFFECTIVE_TO_DATE, EQUIPMENT, PAIRING_POSITION, BID_DATE,
                    UPDATE_DATE, UPDATE_TIME, BASE, BID_TYPE
@@ -87,10 +100,47 @@ utl_df <- data.frame()
      
      emp_hist_p_scr <-  pilot_ut_scr %>% 
        inner_join(clean_ms, by = c("CREW_ID", "BID_PERIOD", "PAIRING_POSITION", "BASE")) %>% 
-       filter(PAIRING_POSITION %in% c("CA", "FO"))
+       filter(PAIRING_POSITION %in% c("CA", "FO")) %>% 
+       select(!c(TO_DATE))
      
      
-     utl_df <- rbind(emp_hist_p_scr, utl_df)
+     emp_hist_p_asn <-  pilot_ut_asn %>% 
+       inner_join(clean_ms, by = c("CREW_ID", "BID_PERIOD", "PAIRING_POSITION", "BASE")) %>% 
+       filter(PAIRING_POSITION %in% c("CA", "FO")) 
+     
+     
+     asn_double <- emp_hist_p_asn %>%
+       mutate(single = if_else(PAIRING_DATE == TO_DATE, 1, 0)) %>% 
+       filter(single == 0) %>% 
+       pivot_longer(cols = c("PAIRING_DATE", "TO_DATE"),
+                    values_to = "DATE") %>% 
+       group_by(CREW_ID, EQUIPMENT, TRANSACTION_CODE, DATE) %>% 
+       mutate(temp_id = cur_group_id()) %>% 
+       filter(!duplicated(temp_id)) %>% 
+       ungroup() %>% 
+       group_by(CREW_ID, TRANSACTION_CODE, EQUIPMENT, PAIRING_NO) %>% 
+       pad(by='DATE') %>% 
+       ungroup()%>% 
+       rename(PAIRING_DATE = DATE) %>% 
+       select(!c(PAIRING_NO, single, name, temp_id))  %>%
+       fill(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_POSITION, BID_PERIOD, BASE, .direction = "down")
+
+     asn_single <- emp_hist_p_asn %>%
+       mutate(single = if_else(PAIRING_DATE == TO_DATE, 1, 0)) %>% 
+       filter(single == 1) %>% 
+       pivot_longer(cols = c("PAIRING_DATE", "TO_DATE"),
+                    values_to = "DATE") %>% 
+       group_by(CREW_ID, EQUIPMENT, TRANSACTION_CODE, DATE) %>% 
+       mutate(temp_id = cur_group_id()) %>% 
+       filter(!duplicated(temp_id)) %>% 
+       ungroup() %>% 
+       rename(PAIRING_DATE = DATE) %>% 
+       select(!c(PAIRING_NO, single, name, temp_id))
+     
+     utl_p <- rbind(emp_hist_p_scr, asn_single, asn_double)
+     
+     
+     utl_df <- rbind(utl_p, utl_df)
      
      print(paste("Completed BID PERIOD:", bid_periods$BID_PERIOD[i]))
          

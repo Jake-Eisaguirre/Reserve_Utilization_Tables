@@ -85,10 +85,58 @@ utl_df <- data.frame()
       filter(!duplicated(temp_id)) %>%
       ungroup() %>% 
       select(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE,
-             PAIRING_DATE, TO_DATE, PAIRING_POSITION, BID_PERIOD, BASE) %>% 
+             PAIRING_DATE, PAIRING_POSITION, BID_PERIOD, BASE) %>% 
       mutate(EQUIPMENT = "NA")
     
-    utl_df <- rbind(fa_ut_rlv, utl_df)
+  fa_ut_asn <- master_history_raw %>% 
+     ungroup() %>% 
+     filter(CREW_INDICATOR == "FA") %>% 
+     filter(TRANSACTION_CODE %in% c("ASN")) %>% 
+     mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>%
+     group_by(CREW_ID, PAIRING_DATE, TRANSACTION_CODE) %>%
+     mutate(temp_id = cur_group_id()) %>%
+     filter(!duplicated(temp_id)) %>%
+     ungroup() %>% 
+     select(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_NO,
+            PAIRING_DATE, TO_DATE, PAIRING_POSITION, BID_PERIOD, BASE, update_dt)
+  
+  
+  fa_ut_single <- fa_ut_asn %>% 
+     group_by(CREW_ID, PAIRING_NO) %>% 
+     mutate(single = if_else(PAIRING_DATE == TO_DATE, 1, 0)) %>% 
+     filter(single == 1) %>% 
+     pivot_longer(cols = c("PAIRING_DATE", "TO_DATE"),
+                  values_to = "DATE") %>% 
+     group_by(CREW_ID, TRANSACTION_CODE, DATE, PAIRING_NO) %>% 
+     mutate(temp_id = cur_group_id()) %>% 
+     filter(!duplicated(temp_id)) %>%
+     ungroup() %>% 
+     mutate(EQUIPMENT = "NA") %>% 
+    rename(PAIRING_DATE = DATE) %>% 
+    select(!c(PAIRING_NO, update_dt, single, name, temp_id))
+
+  
+  fa_ut_double <- fa_ut_asn %>% 
+     group_by(CREW_ID, PAIRING_NO) %>% 
+     mutate(single = if_else(PAIRING_DATE == TO_DATE, 1, 0)) %>% 
+     filter(single == 0) %>% 
+     pivot_longer(cols = c("PAIRING_DATE", "TO_DATE"),
+                  values_to = "DATE") %>% 
+     group_by(CREW_ID, TRANSACTION_CODE, DATE, PAIRING_NO) %>% 
+     mutate(temp_id = cur_group_id()) %>% 
+     filter(!duplicated(temp_id)) %>%
+     ungroup() %>% 
+     group_by(CREW_ID, BASE, PAIRING_NO) %>% 
+     pad() %>% 
+     ungroup() %>% 
+    mutate(EQUIPMENT = "NA")%>% 
+    rename(PAIRING_DATE = DATE) %>% 
+    select(!c(PAIRING_NO, update_dt, single, name, temp_id)) %>%
+    fill(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_POSITION, BID_PERIOD, BASE, .direction = "down")
+  
+  fa_ut <- rbind(fa_ut_rlv, fa_ut_single, fa_ut_double)
+    
+    utl_df <- rbind(fa_ut, utl_df)
     
     
     print(paste0("Completed BID_PERIOD: ", bid_periods$BID_PERIOD[i]))
