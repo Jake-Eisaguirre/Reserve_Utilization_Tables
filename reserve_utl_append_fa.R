@@ -10,11 +10,13 @@ if (!require(librarian)){
 librarian::shelf(tidyverse, here, DBI, odbc, padr)
 
 
-raw_date <- Sys.Date()
-  
-previous_bid_period <- substr(as.character((raw_date + 32)), 1, 7)
 
-update_dt_rlv <- paste0(substr(as.character((raw_date)), 1, 7), "-25 00:00:00")
+current_date <- Sys.Date()  # Today's date
+week_prior <- current_date - 3  # Date three days prior
+week_prior_pairing_date <- current_date - 7  # Date seven days prior
+
+previous_bid_period <- substr(as.character((current_date - 30)), 1, 7)
+update_dt_rlv <- paste0((as.character(previous_bid_period)), "-25 00:00:00")
 
 
 tryCatch({
@@ -35,7 +37,7 @@ error=function(cond) {
 dbExecute(db_connection, "USE SCHEMA CREW_ANALYTICS")
 
 
-q_master_history <- paste0("SELECT * FROM CT_MASTER_HISTORY WHERE BID_PERIOD = '", previous_bid_period, "';")
+q_master_history <- paste0("SELECT * FROM CT_MASTER_HISTORY WHERE PAIRING_DATE BETWEEN '", week_prior, "' AND '", current_date, "';")
 
 master_history_raw <- dbGetQuery(db_connection, q_master_history) %>%
   mutate(UPDATE_TIME = as.character(UPDATE_TIME),
@@ -53,7 +55,64 @@ fa_ut_rlv <- master_history_raw %>%
   filter(!duplicated(temp_id)) %>%
   ungroup() %>% 
   select(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE,
-         PAIRING_DATE, TO_DATE, PAIRING_POSITION, BID_PERIOD, BASE)
+         PAIRING_DATE, PAIRING_POSITION, BID_PERIOD, BASE) %>% 
+  mutate(EQUIPMENT = "NA")
+
+fa_ut_asn <- master_history_raw %>% 
+  ungroup() %>% 
+  filter(CREW_INDICATOR == "FA") %>% 
+  filter(TRANSACTION_CODE %in% c("ASN")) %>% 
+  mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>%
+  group_by(CREW_ID, PAIRING_DATE, TRANSACTION_CODE) %>%
+  mutate(temp_id = cur_group_id()) %>%
+  filter(!duplicated(temp_id)) %>%
+  ungroup() %>% 
+  select(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_NO,
+         PAIRING_DATE, TO_DATE, PAIRING_POSITION, BID_PERIOD, BASE, update_dt)
+
+
+fa_ut_single <- fa_ut_asn %>% 
+  group_by(CREW_ID, PAIRING_NO) %>% 
+  mutate(single = if_else(PAIRING_DATE == TO_DATE, 1, 0)) %>% 
+  filter(single == 1) %>% 
+  pivot_longer(cols = c("PAIRING_DATE", "TO_DATE"),
+               values_to = "DATE") %>% 
+  group_by(CREW_ID, TRANSACTION_CODE, DATE, PAIRING_NO) %>% 
+  mutate(temp_id = cur_group_id()) %>% 
+  filter(!duplicated(temp_id)) %>%
+  ungroup() %>% 
+  mutate(EQUIPMENT = "NA") %>% 
+  rename(PAIRING_DATE = DATE) %>% 
+  select(!c(PAIRING_NO, update_dt, single, name, temp_id))
+
+
+fa_ut_double <- fa_ut_asn %>% 
+  group_by(CREW_ID, PAIRING_NO) %>% 
+  mutate(single = if_else(PAIRING_DATE == TO_DATE, 1, 0)) %>% 
+  filter(single == 0) %>% 
+  pivot_longer(cols = c("PAIRING_DATE", "TO_DATE"),
+               values_to = "DATE") %>% 
+  group_by(CREW_ID, TRANSACTION_CODE, DATE, PAIRING_NO) %>% 
+  mutate(temp_id = cur_group_id()) %>% 
+  filter(!duplicated(temp_id)) %>%
+  ungroup() %>% 
+  group_by(CREW_ID, BASE, PAIRING_NO) %>% 
+  pad() %>% 
+  ungroup() %>% 
+  mutate(EQUIPMENT = "NA")%>% 
+  rename(PAIRING_DATE = DATE) %>% 
+  select(!c(PAIRING_NO, update_dt, single, name, temp_id)) %>%
+  fill(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_POSITION, BID_PERIOD, BASE, .direction = "down")
+
+fa_ut <- rbind(fa_ut_rlv, fa_ut_single, fa_ut_double) %>% 
+  filter(PAIRING_DATE <= current_date)%>% 
+  mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "RSV", "RLV", TRANSACTION_CODE)) %>% 
+  group_by(PAIRING_DATE, BASE, TRANSACTION_CODE) %>% 
+  summarise(DAILY_COUNT = n()) %>%  # Use summarise() instead of mutate() to avoid repeated counts
+  ungroup() %>%
+  pivot_wider(names_from = TRANSACTION_CODE, values_from = DAILY_COUNT, values_fill = list(DAILY_COUNT = 0)) %>%  # Use a named list for values_fill
+  mutate(PERCENT_UTILIZATION = (ASN / RLV) * 100) %>% 
+  select(PAIRING_DATE, BASE, ASN, RLV, PERCENT_UTILIZATION)
 
 
 # Connect to the `PLAYGROUND` database and append data if necessary
@@ -76,13 +135,13 @@ present_ut <- dbGetQuery(db_connection_pg, "SELECT * FROM AA_RESERVE_UTILIZATION
 
 
 # Find matching columns between the present and final pairings
-matching_cols <- dplyr::intersect(colnames(present_ut), colnames(fa_ut_rlv))
+matching_cols <- dplyr::intersect(colnames(present_ut), colnames(fa_ut))
 
 # Filter both datasets to have matching columns and append new records
 match_present_fo <- present_ut %>%
   select(matching_cols)
 
-final_append_match_cols <- fa_ut_rlv %>%
+final_append_match_cols <- fa_ut %>%
   select(matching_cols)
 
 

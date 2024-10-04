@@ -137,7 +137,15 @@ utl_df <- data.frame()
        rename(PAIRING_DATE = DATE) %>% 
        select(!c(PAIRING_NO, single, name, temp_id))
      
-     utl_p <- rbind(emp_hist_p_scr, asn_single, asn_double)
+     utl_p <- rbind(emp_hist_p_scr, asn_single, asn_double)%>% 
+      filter(PAIRING_DATE <= raw_date)%>% 
+      mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "ACR", "SCR", TRANSACTION_CODE)) %>% 
+    group_by(PAIRING_DATE, PAIRING_POSITION, EQUIPMENT, TRANSACTION_CODE) %>% 
+    summarise(DAILY_COUNT = n()) %>%  # Use summarise() instead of mutate() to avoid repeated counts
+    ungroup() %>%
+    pivot_wider(names_from = TRANSACTION_CODE, values_from = DAILY_COUNT, values_fill = list(DAILY_COUNT = 0)) %>%  # Use a named list for values_fill
+    mutate(PERCENT_UTILIZATION = (ASN / SCR) * 100) %>% 
+    select(PAIRING_DATE, PAIRING_POSITION, EQUIPMENT, ASN, SCR, PERCENT_UTILIZATION)
      
      
      utl_df <- rbind(utl_p, utl_df)
