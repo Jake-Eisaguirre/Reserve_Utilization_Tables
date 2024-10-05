@@ -105,14 +105,24 @@ fa_ut_double <- fa_ut_asn %>%
   fill(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_POSITION, BID_PERIOD, BASE, .direction = "down")
 
 fa_ut <- rbind(fa_ut_rlv, fa_ut_single, fa_ut_double) %>% 
-  filter(PAIRING_DATE <= current_date)%>% 
+  filter(PAIRING_DATE <= raw_date) %>% 
   mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "RSV", "RLV", TRANSACTION_CODE)) %>% 
   group_by(PAIRING_DATE, BASE, TRANSACTION_CODE) %>% 
   summarise(DAILY_COUNT = n()) %>%  # Use summarise() instead of mutate() to avoid repeated counts
   ungroup() %>%
-  pivot_wider(names_from = TRANSACTION_CODE, values_from = DAILY_COUNT, values_fill = list(DAILY_COUNT = 0)) %>%  # Use a named list for values_fill
-  mutate(PERCENT_UTILIZATION = (ASN / RLV) * 100) %>% 
-  select(PAIRING_DATE, BASE, ASN, RLV, PERCENT_UTILIZATION)
+  pivot_wider(names_from = TRANSACTION_CODE, values_from = DAILY_COUNT) %>%
+  rename(RLV_SCR = RLV) %>% 
+  mutate(ASN = if_else(is.na(ASN), 0, ASN)) %>% 
+  drop_na(RLV_SCR) %>% 
+  mutate(PERCENT_UTILIZATION = round((ASN / RLV_SCR) * 100, 2)) %>% 
+  select(PAIRING_DATE, BASE, ASN, RLV_SCR, PERCENT_UTILIZATION) %>% 
+  mutate(PAIRING_POSITION = "FA") %>% 
+  relocate(PAIRING_POSITION, .before = PAIRING_DATE) %>% 
+  mutate(EQUIPMENT = "NA")%>% 
+  relocate(EQUIPMENT, .before = ASN)
+
+
+
 
 
 # Connect to the `PLAYGROUND` database and append data if necessary

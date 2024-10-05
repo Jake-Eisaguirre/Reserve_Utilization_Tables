@@ -127,15 +127,24 @@ asn_single <- emp_hist_p_asn %>%
   rename(PAIRING_DATE = DATE) %>% 
   select(!c(PAIRING_NO, single, name, temp_id))
 
-utl_p <- rbind(emp_hist_p_scr, asn_single, asn_double) %>% 
-  filter(PAIRING_DATE <= current_date)%>% 
+
+utl_p <- rbind(emp_hist_p_scr, asn_single, asn_double)%>% 
+  filter(PAIRING_DATE <= raw_date)%>% 
   mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "ACR", "SCR", TRANSACTION_CODE)) %>% 
   group_by(PAIRING_DATE, PAIRING_POSITION, EQUIPMENT, TRANSACTION_CODE) %>% 
-  summarise(DAILY_COUNT = n()) %>%  # Use summarise() instead of mutate() to avoid repeated counts
+  summarise(DAILY_COUNT = n()) %>% 
   ungroup() %>%
-  pivot_wider(names_from = TRANSACTION_CODE, values_from = DAILY_COUNT, values_fill = list(DAILY_COUNT = 0)) %>%  # Use a named list for values_fill
-  mutate(PERCENT_UTILIZATION = (ASN / SCR) * 100) %>% 
-  select(PAIRING_DATE, PAIRING_POSITION, EQUIPMENT, ASN, SCR, PERCENT_UTILIZATION)
+  pivot_wider(names_from = TRANSACTION_CODE, values_from = DAILY_COUNT) %>%  
+  rename(RLV_SCR = SCR) %>% 
+  mutate(ASN = if_else(is.na(ASN), 0, ASN)) %>% 
+  mutate(PERCENT_UTILIZATION = round((ASN / RLV_SCR) * 100, 2)) %>% 
+  select(PAIRING_DATE, PAIRING_POSITION, EQUIPMENT, ASN, RLV_SCR, PERCENT_UTILIZATION)%>% 
+  filter(!EQUIPMENT == "33Y") %>% 
+  ungroup() %>% 
+  mutate(flag = if_else(PAIRING_DATE < 2024-04-31 & EQUIPMENT == 789, 1, 0)) %>% 
+  filter(flag == 0) %>% 
+  select(!flag) %>% 
+  drop_na(RLV_SCR)
 
 
 # Connect to the `PLAYGROUND` database and append data if necessary

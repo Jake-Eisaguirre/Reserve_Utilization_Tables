@@ -36,11 +36,14 @@ dbExecute(db_connection, "USE SCHEMA CREW_ANALYTICS")
 
 
 q_bid_periods <- "SELECT DISTINCT BID_PERIOD FROM CT_MASTER_HISTORY ORDER BY BID_PERIOD DESC;"
-bid_periods <- dbGetQuery(db_connection, q_bid_periods)
+bid_periods <- dbGetQuery(db_connection, q_bid_periods) %>% 
+  filter(BID_PERIOD >= "2023-01")
 
 ```
 
 ```{r}
+
+raw_date <- Sys.Date()
 
 utl_df <- data.frame()
 
@@ -99,7 +102,7 @@ utl_df <- data.frame()
      
      
      emp_hist_p_scr <-  pilot_ut_scr %>% 
-       inner_join(clean_ms, by = c("CREW_ID", "BID_PERIOD", "PAIRING_POSITION", "BASE")) %>% 
+       left_join(clean_ms, by = c("CREW_ID", "BID_PERIOD", "PAIRING_POSITION", "BASE")) %>% 
        filter(PAIRING_POSITION %in% c("CA", "FO")) %>% 
        select(!c(TO_DATE))
      
@@ -138,14 +141,22 @@ utl_df <- data.frame()
        select(!c(PAIRING_NO, single, name, temp_id))
      
      utl_p <- rbind(emp_hist_p_scr, asn_single, asn_double)%>% 
-      filter(PAIRING_DATE <= raw_date)%>% 
-      mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "ACR", "SCR", TRANSACTION_CODE)) %>% 
-    group_by(PAIRING_DATE, PAIRING_POSITION, EQUIPMENT, TRANSACTION_CODE) %>% 
-    summarise(DAILY_COUNT = n()) %>%  # Use summarise() instead of mutate() to avoid repeated counts
-    ungroup() %>%
-    pivot_wider(names_from = TRANSACTION_CODE, values_from = DAILY_COUNT, values_fill = list(DAILY_COUNT = 0)) %>%  # Use a named list for values_fill
-    mutate(PERCENT_UTILIZATION = (ASN / SCR) * 100) %>% 
-    select(PAIRING_DATE, PAIRING_POSITION, EQUIPMENT, ASN, SCR, PERCENT_UTILIZATION)
+       filter(PAIRING_DATE <= raw_date)%>% 
+       mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "ACR", "SCR", TRANSACTION_CODE)) %>% 
+       group_by(PAIRING_DATE, PAIRING_POSITION, EQUIPMENT, TRANSACTION_CODE) %>% 
+       summarise(DAILY_COUNT = n()) %>% 
+       ungroup() %>%
+       pivot_wider(names_from = TRANSACTION_CODE, values_from = DAILY_COUNT) %>%  
+       rename(RLV_SCR = SCR) %>% 
+       mutate(ASN = if_else(is.na(ASN), 0, ASN)) %>% 
+       mutate(PERCENT_UTILIZATION = round((ASN / RLV_SCR) * 100, 2)) %>% 
+       select(PAIRING_DATE, PAIRING_POSITION, EQUIPMENT, ASN, RLV_SCR, PERCENT_UTILIZATION)%>% 
+       filter(!EQUIPMENT == "33Y") %>% 
+       ungroup() %>% 
+       mutate(flag = if_else(PAIRING_DATE < 2024-04-31 & EQUIPMENT == 789, 1, 0)) %>% 
+       filter(flag == 0) %>% 
+       select(!flag) %>% 
+       drop_na(RLV_SCR)
      
      
      utl_df <- rbind(utl_p, utl_df)
