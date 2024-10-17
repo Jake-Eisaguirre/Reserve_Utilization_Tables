@@ -139,6 +139,11 @@ utl_df <- data.frame()
    fa_ut <- rbind(fa_ut_rlv, fa_ut_single, fa_ut_double) %>% 
        filter(PAIRING_DATE <= raw_date) %>% 
        mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "RSV", "RLV", TRANSACTION_CODE)) %>% 
+       mutate(EQUIPMENT = "NA")%>% 
+
+       
+  ## Gold Tier Below
+  
        group_by(PAIRING_DATE, BASE, TRANSACTION_CODE) %>% 
        summarise(DAILY_COUNT = n()) %>%  # Use summarise() instead of mutate() to avoid repeated counts
        ungroup() %>%
@@ -150,7 +155,6 @@ utl_df <- data.frame()
        select(PAIRING_DATE, BASE, ASN, RLV_SCR, PERCENT_UTILIZATION) %>% 
        mutate(PAIRING_POSITION = "FA") %>% 
        relocate(PAIRING_POSITION, .before = PAIRING_DATE) %>% 
-       mutate(EQUIPMENT = "NA")%>% 
        relocate(EQUIPMENT, .before = ASN)
 
 

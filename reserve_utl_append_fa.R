@@ -14,10 +14,11 @@ librarian::shelf(tidyverse, here, DBI, odbc, padr)
 current_date <- Sys.Date()  # Today's date
 week_prior <- current_date - 3  # Date three days prior
 week_prior_pairing_date <- current_date - 7  # Date seven days prior
+fut_date <-  Sys.Date() + 7
 
 previous_bid_period <- substr(as.character((current_date - 30)), 1, 7)
 update_dt_rlv <- paste0((as.character(previous_bid_period)), "-25 00:00:00")
-
+raw_date <- Sys.Date()
 
 tryCatch({
   db_connection <- DBI::dbConnect(odbc::odbc(),
@@ -37,7 +38,7 @@ error=function(cond) {
 dbExecute(db_connection, "USE SCHEMA CREW_ANALYTICS")
 
 
-q_master_history <- paste0("SELECT * FROM CT_MASTER_HISTORY WHERE PAIRING_DATE BETWEEN '", week_prior, "' AND '", current_date, "';")
+q_master_history <- paste0("SELECT * FROM CT_MASTER_HISTORY WHERE PAIRING_DATE BETWEEN '", week_prior, "' AND '", fut_date, "';")
 
 master_history_raw <- dbGetQuery(db_connection, q_master_history) %>%
   mutate(UPDATE_TIME = as.character(UPDATE_TIME),
@@ -105,8 +106,11 @@ fa_ut_double <- fa_ut_asn %>%
   fill(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_POSITION, BID_PERIOD, BASE, .direction = "down")
 
 fa_ut <- rbind(fa_ut_rlv, fa_ut_single, fa_ut_double) %>% 
-  filter(PAIRING_DATE <= raw_date) %>% 
+  filter(PAIRING_DATE <= fut_date) %>% 
   mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "RSV", "RLV", TRANSACTION_CODE)) %>% 
+  mutate(EQUIPMENT = "NA")%>% 
+  ## Gold Tier Below
+  
   group_by(PAIRING_DATE, BASE, TRANSACTION_CODE) %>% 
   summarise(DAILY_COUNT = n()) %>%  # Use summarise() instead of mutate() to avoid repeated counts
   ungroup() %>%
@@ -118,7 +122,6 @@ fa_ut <- rbind(fa_ut_rlv, fa_ut_single, fa_ut_double) %>%
   select(PAIRING_DATE, BASE, ASN, RLV_SCR, PERCENT_UTILIZATION) %>% 
   mutate(PAIRING_POSITION = "FA") %>% 
   relocate(PAIRING_POSITION, .before = PAIRING_DATE) %>% 
-  mutate(EQUIPMENT = "NA")%>% 
   relocate(EQUIPMENT, .before = ASN)
 
 
@@ -155,7 +158,7 @@ final_append_match_cols <- fa_ut %>%
   select(matching_cols)
 
 
-final_append <- anti_join(final_append_match_cols, match_present_fo)
+final_append <- anti_join(final_append_match_cols, match_present_fo, by = join_by(PAIRING_POSITION, PAIRING_DATE, BASE, EQUIPMENT))
 
 # Append new records to the `AA_FINAL_PAIRING` table
 dbAppendTable(db_connection_pg, "AA_RESERVE_UTILIZATION", final_append)
