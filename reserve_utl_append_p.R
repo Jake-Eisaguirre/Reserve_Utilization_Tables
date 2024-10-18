@@ -137,22 +137,22 @@ utl_p <- rbind(emp_hist_p_scr, asn_single, asn_double)%>%
   mutate(BASE = if_else(EQUIPMENT == "717", "HNL", BASE)) %>% 
   filter(PAIRING_DATE <= fut_date) %>% 
   mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "ACR", "SCR", TRANSACTION_CODE)) %>% 
-  filter(!EQUIPMENT == "33Y") %>% 
+  filter(!EQUIPMENT == "33Y") #%>% 
   
   ## Gold Tier Below
-  
-  group_by(BASE, PAIRING_DATE, PAIRING_POSITION, EQUIPMENT, TRANSACTION_CODE) %>% 
-  summarise(DAILY_COUNT = n()) %>% 
-  ungroup() %>%
-  pivot_wider(names_from = TRANSACTION_CODE, values_from = DAILY_COUNT) %>%  
-  mutate(ASN = if_else(is.na(ASN), 0, ASN)) %>% 
-  mutate(PERCENT_UTILIZATION = round((ASN / RLV_SCR) * 100, 2)) %>% 
-  select(PAIRING_DATE, PAIRING_POSITION, BASE, EQUIPMENT, ASN, RLV_SCR, PERCENT_UTILIZATION)%>% 
-  ungroup() %>% 
-  mutate(flag = if_else(PAIRING_DATE < 2024-04-31 & EQUIPMENT == 789, 1, 0)) %>% 
-  filter(flag == 0) %>% 
-  select(!flag) %>% 
-  drop_na(RLV_SCR)
+  # 
+  # group_by(BASE, PAIRING_DATE, PAIRING_POSITION, EQUIPMENT, TRANSACTION_CODE) %>% 
+  # summarise(DAILY_COUNT = n()) %>% 
+  # ungroup() %>%
+  # pivot_wider(names_from = TRANSACTION_CODE, values_from = DAILY_COUNT) %>%  
+  # mutate(ASN = if_else(is.na(ASN), 0, ASN)) %>% 
+  # mutate(PERCENT_UTILIZATION = round((ASN / RLV_SCR) * 100, 2)) %>% 
+  # select(PAIRING_DATE, PAIRING_POSITION, BASE, EQUIPMENT, ASN, RLV_SCR, PERCENT_UTILIZATION)%>% 
+  # ungroup() %>% 
+  # mutate(flag = if_else(PAIRING_DATE < 2024-04-31 & EQUIPMENT == 789, 1, 0)) %>% 
+  # filter(flag == 0) %>% 
+  # select(!flag) %>% 
+  # drop_na(RLV_SCR)
 
 
 # Connect to the `PLAYGROUND` database and append data if necessary

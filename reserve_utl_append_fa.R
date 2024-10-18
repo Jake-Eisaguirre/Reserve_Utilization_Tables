@@ -108,21 +108,21 @@ fa_ut_double <- fa_ut_asn %>%
 fa_ut <- rbind(fa_ut_rlv, fa_ut_single, fa_ut_double) %>% 
   filter(PAIRING_DATE <= fut_date) %>% 
   mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "RSV", "RLV", TRANSACTION_CODE)) %>% 
-  mutate(EQUIPMENT = "NA")%>% 
+  mutate(EQUIPMENT = "NA") #%>% 
   ## Gold Tier Below
   
-  group_by(PAIRING_DATE, BASE, TRANSACTION_CODE) %>% 
-  summarise(DAILY_COUNT = n()) %>%  # Use summarise() instead of mutate() to avoid repeated counts
-  ungroup() %>%
-  pivot_wider(names_from = TRANSACTION_CODE, values_from = DAILY_COUNT) %>%
-  rename(RLV_SCR = RLV) %>% 
-  mutate(ASN = if_else(is.na(ASN), 0, ASN)) %>% 
-  drop_na(RLV_SCR) %>% 
-  mutate(PERCENT_UTILIZATION = round((ASN / RLV_SCR) * 100, 2)) %>% 
-  select(PAIRING_DATE, BASE, ASN, RLV_SCR, PERCENT_UTILIZATION) %>% 
-  mutate(PAIRING_POSITION = "FA") %>% 
-  relocate(PAIRING_POSITION, .before = PAIRING_DATE) %>% 
-  relocate(EQUIPMENT, .before = ASN)
+  # group_by(PAIRING_DATE, BASE, TRANSACTION_CODE) %>% 
+  # summarise(DAILY_COUNT = n()) %>%  # Use summarise() instead of mutate() to avoid repeated counts
+  # ungroup() %>%
+  # pivot_wider(names_from = TRANSACTION_CODE, values_from = DAILY_COUNT) %>%
+  # rename(RLV_SCR = RLV) %>% 
+  # mutate(ASN = if_else(is.na(ASN), 0, ASN)) %>% 
+  # drop_na(RLV_SCR) %>% 
+  # mutate(PERCENT_UTILIZATION = round((ASN / RLV_SCR) * 100, 2)) %>% 
+  # select(PAIRING_DATE, BASE, ASN, RLV_SCR, PERCENT_UTILIZATION) %>% 
+  # mutate(PAIRING_POSITION = "FA") %>% 
+  # relocate(PAIRING_POSITION, .before = PAIRING_DATE) %>% 
+  # relocate(EQUIPMENT, .before = ASN)
 
 
 

@@ -148,23 +148,23 @@ utl_df <- data.frame()
        ungroup() %>% 
        mutate(flag = if_else(PAIRING_DATE < 2024-04-31 & EQUIPMENT == 789, 1, 0)) %>% 
        filter(flag == 0) %>% 
-       select(!flag) %>% 
+       select(!flag) #%>% 
        
        ## Gold Tier Below
-  
-       group_by(BASE, PAIRING_DATE, PAIRING_POSITION, EQUIPMENT, TRANSACTION_CODE) %>% 
-       summarise(DAILY_COUNT = n()) %>% 
-       ungroup() %>%
-       pivot_wider(names_from = TRANSACTION_CODE, values_from = DAILY_COUNT) %>%  
-       rename(RLV_SCR = SCR) %>% 
-       mutate(ASN = if_else(is.na(ASN), 0, ASN)) %>% 
-       mutate(PERCENT_UTILIZATION = round((ASN / RLV_SCR) * 100, 2)) %>% 
-       select(PAIRING_DATE, PAIRING_POSITION, BASE, EQUIPMENT, ASN, RLV_SCR, PERCENT_UTILIZATION)%>% 
-       # ungroup() %>% 
-       # mutate(flag = if_else(PAIRING_DATE < 2024-04-31 & EQUIPMENT == 789, 1, 0)) %>% 
-       # filter(flag == 0) %>% 
-       # select(!flag) %>% 
-       drop_na(RLV_SCR)
+       # 
+       # group_by(BASE, PAIRING_DATE, PAIRING_POSITION, EQUIPMENT, TRANSACTION_CODE) %>% 
+       # summarise(DAILY_COUNT = n()) %>% 
+       # ungroup() %>%
+       # pivot_wider(names_from = TRANSACTION_CODE, values_from = DAILY_COUNT) %>%  
+       # rename(RLV_SCR = SCR) %>% 
+       # mutate(ASN = if_else(is.na(ASN), 0, ASN)) %>% 
+       # mutate(PERCENT_UTILIZATION = round((ASN / RLV_SCR) * 100, 2)) %>% 
+       # select(PAIRING_DATE, PAIRING_POSITION, BASE, EQUIPMENT, ASN, RLV_SCR, PERCENT_UTILIZATION)%>% 
+       # # ungroup() %>% 
+       # # mutate(flag = if_else(PAIRING_DATE < 2024-04-31 & EQUIPMENT == 789, 1, 0)) %>% 
+       # # filter(flag == 0) %>% 
+       # # select(!flag) %>% 
+       # drop_na(RLV_SCR)
      
      
      utl_df <- rbind(utl_p, utl_df)
