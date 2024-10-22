@@ -16,80 +16,70 @@ librarian::shelf(tidyverse, here, DBI, odbc, padr)
 ```
 
 ```{r}
-raw_date <- Sys.Date()
+raw_date <- Sys.Date()                                  # Store the current system date
+previous_bid_period <- substr(as.character((raw_date - 30)), 1, 7)   # Extract previous bid period by subtracting 30 days from current date
+update_dt_rlv <- paste0(substr(as.character((raw_date - 60)), 1, 7), "-25 00:00:00")  # FA reserve count must occur on the 25th of the proceeding month
 
-previous_bid_period <- substr(as.character((raw_date - 30)), 1, 7)
-
-update_dt_rlv <- paste0(substr(as.character((raw_date - 60)), 1, 7), "-25 00:00:00")
 
 ```
 
 
 ```{r}
-tryCatch({
-    db_connection <- DBI::dbConnect(odbc::odbc(),
-                             Driver="SnowflakeDSIIDriver",
-                             Server="hawaiianair.west-us-2.azure.snowflakecomputing.com",
-                             WAREHOUSE="DATA_LAKE_READER",
-                             Database="ENTERPRISE",
-                             UID= Sys.getenv("UID"), 
-                             authenticator = "externalbrowser")
-    print("Database Connected!")
+tryCatch({  # Attempts the database connection and catches any errors
+    db_connection <- DBI::dbConnect(odbc::odbc(),  # Creates a connection using the ODBC driver
+                             Driver="SnowflakeDSIIDriver",  # Specifies the Snowflake ODBC driver
+                             Server="hawaiianair.west-us-2.azure.snowflakecomputing.com",  # Points to the Snowflake server
+                             WAREHOUSE="DATA_LAKE_READER",  # Selects the data warehouse
+                             Database="ENTERPRISE",  # Selects the Enterprise database
+                             UID= Sys.getenv("UID"),  # Retrieves the user ID from the environment variables
+                             authenticator = "externalbrowser")  # Uses external browser authentication
+    print("Database Connected!")  # Prints a message if the connection is successful
     },
-    error=function(cond) {
-            print("Unable to connect to Database.")
+    error=function(cond) {  # Defines error handling if the connection fails
+            print("Unable to connect to Database.")  # Prints an error message
 })
 
 # Set search_path
-dbExecute(db_connection, "USE SCHEMA CREW_ANALYTICS")
+dbExecute(db_connection, "USE SCHEMA CREW_ANALYTICS")  # Sets the working schema to 'CREW_ANALYTICS' in the database
 
+q_bid_periods <- "SELECT DISTINCT BID_PERIOD FROM CT_MASTER_HISTORY ORDER BY BID_PERIOD DESC;"  # SQL query to select distinct bid periods
+bid_periods <- dbGetQuery(db_connection, q_bid_periods) %>%  # Retrieves the query result and assigns it to 'bid_periods'
+  filter(BID_PERIOD >= "2023-01",  # Filters bid periods starting from January 2023
+         BID_PERIOD <= "2024-10")  # Limits the selection to October 2024 - Depends when you build initital table
 
-q_bid_periods <- "SELECT DISTINCT BID_PERIOD FROM CT_MASTER_HISTORY ORDER BY BID_PERIOD DESC;"
-bid_periods <- dbGetQuery(db_connection, q_bid_periods) %>% 
-  filter(BID_PERIOD >= "2023-01",
-         BID_PERIOD <= "2024-10")
-
-
-
-# q_master_history <- paste0("select * from CT_MASTER_HISTORY")
-# 
-# 
-# master_history_raw <- dbGetQuery(db_connection, q_master_history)
 
 ```
 
 ```{r}
 
-utl_df <- data.frame()
+utl_df <- data.frame()  # Initializes an empty data frame 'utl_df'
 
 # Loop over bases
-  for (i in seq_along(bid_periods$BID_PERIOD)) { 
+for (i in seq_along(bid_periods$BID_PERIOD)) {  # Loops through each bid period
+  
+    q_master_history <- paste0("SELECT * FROM CT_MASTER_HISTORY WHERE BID_PERIOD = '", bid_periods$BID_PERIOD[i], "';")  # Constructs an SQL query to get all records for the current bid period
     
-    q_master_history <- paste0("SELECT * FROM CT_MASTER_HISTORY WHERE BID_PERIOD = '", bid_periods$BID_PERIOD[i], "';")
+    master_history_raw <- dbGetQuery(db_connection, q_master_history) %>%  # Retrieves data from the query
+      mutate(UPDATE_TIME = as.character(UPDATE_TIME),  # Converts 'UPDATE_TIME' to character type
+             UPDATE_DATE = as.character(UPDATE_DATE))  # Converts 'UPDATE_DATE' to character type
     
-    master_history_raw <- dbGetQuery(db_connection, q_master_history) %>%
-      mutate(UPDATE_TIME = as.character(UPDATE_TIME),
-             UPDATE_DATE = as.character(UPDATE_DATE))
-    
-    
-    update_dt_rlv <- paste0((as_datetime(paste0(bid_periods$BID_PERIOD[i], "-24 00:00:00")) - months(1)), " 00:00:00") 
+    update_dt_rlv <- paste0((as_datetime(paste0(bid_periods$BID_PERIOD[i], "-24 00:00:00")) - months(1)), " 00:00:00")  # Calculates a relevant date one month before the 24th of the current bid period
 
-    
-
+    # Filter and process RSV and RLV transactions
     fa_ut_rlv <- master_history_raw %>% 
+      ungroup() %>%  # Removes any grouping from the previous operations
+      filter(CREW_INDICATOR == "FA") %>%  # Filters rows where the crew indicator is 'FA' (Flight Attendant)
+      filter(TRANSACTION_CODE %in% c("RSV", "RLV")) %>%  # Filters for RSV and RLV transaction codes
+      mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>%  # Combines 'UPDATE_DATE' and 'UPDATE_TIME' into a new column 'update_dt'
+      filter(update_dt < update_dt_rlv) %>%  # Filters rows with 'update_dt' earlier than the calculated 'update_dt_rlv'
+      group_by(CREW_ID, PAIRING_DATE, TRANSACTION_CODE) %>%  # Groups by crew ID, pairing date, and transaction code
+      mutate(temp_id = cur_group_id()) %>%  # Creates a temporary group identifier
+      filter(!duplicated(temp_id)) %>%  # Removes duplicate rows within the group
       ungroup() %>% 
-      filter(CREW_INDICATOR == "FA") %>% 
-      filter(TRANSACTION_CODE %in% c("RSV", "RLV")) %>%
-      mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>%
-      filter(update_dt < update_dt_rlv) %>%
-      group_by(CREW_ID, PAIRING_DATE, TRANSACTION_CODE) %>%
-      mutate(temp_id = cur_group_id()) %>%
-      filter(!duplicated(temp_id)) %>%
-      ungroup() %>% 
-      select(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE,
-             PAIRING_DATE, PAIRING_POSITION, BID_PERIOD, BASE) %>% 
-      mutate(EQUIPMENT = "NA")
-    
+      select(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_DATE, PAIRING_POSITION, BID_PERIOD, BASE) %>%  # Selects specific columns
+      mutate(EQUIPMENT = "NA")  # Adds a column 'EQUIPMENT' and sets its value to "NA"
+
+  # Filter and process ASN transactions
   fa_ut_asn <- master_history_raw %>% 
      ungroup() %>% 
      filter(CREW_INDICATOR == "FA") %>% 
@@ -99,48 +89,44 @@ utl_df <- data.frame()
      mutate(temp_id = cur_group_id()) %>%
      filter(!duplicated(temp_id)) %>%
      ungroup() %>% 
-     select(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_NO,
-            PAIRING_DATE, TO_DATE, PAIRING_POSITION, BID_PERIOD, BASE, update_dt)
-  
-  
+     select(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_NO, PAIRING_DATE, TO_DATE, PAIRING_POSITION, BID_PERIOD, BASE, update_dt)
+
+  # Process ASN transactions for single-day pairings
   fa_ut_single <- fa_ut_asn %>% 
      group_by(CREW_ID, PAIRING_NO) %>% 
-     mutate(single = if_else(PAIRING_DATE == TO_DATE, 1, 0)) %>% 
-     filter(single == 1) %>% 
-     pivot_longer(cols = c("PAIRING_DATE", "TO_DATE"),
-                  values_to = "DATE") %>% 
+     mutate(single = if_else(PAIRING_DATE == TO_DATE, 1, 0)) %>%  # Adds a 'single' indicator: 1 if pairing is on a single day, 0 otherwise
+     filter(single == 1) %>%  # Filters only single-day pairings
+     pivot_longer(cols = c("PAIRING_DATE", "TO_DATE"), values_to = "DATE") %>%  # Pivots 'PAIRING_DATE' and 'TO_DATE' into a single 'DATE' column
      group_by(CREW_ID, TRANSACTION_CODE, DATE, PAIRING_NO) %>% 
      mutate(temp_id = cur_group_id()) %>% 
-     filter(!duplicated(temp_id)) %>%
+     filter(!duplicated(temp_id)) %>% 
      ungroup() %>% 
      mutate(EQUIPMENT = "NA") %>% 
-    rename(PAIRING_DATE = DATE) %>% 
-    select(!c(PAIRING_NO, update_dt, single, name, temp_id))
+     rename(PAIRING_DATE = DATE) %>%  # Renames 'DATE' back to 'PAIRING_DATE'
+     select(!c(PAIRING_NO, update_dt, single, name, temp_id))  # Drops unneeded columns
 
-  
+  # Process ASN transactions for multi-day pairings
   fa_ut_double <- fa_ut_asn %>% 
      group_by(CREW_ID, PAIRING_NO) %>% 
      mutate(single = if_else(PAIRING_DATE == TO_DATE, 1, 0)) %>% 
-     filter(single == 0) %>% 
-     pivot_longer(cols = c("PAIRING_DATE", "TO_DATE"),
-                  values_to = "DATE") %>% 
+     filter(single == 0) %>%  # Filters only multi-day pairings
+     pivot_longer(cols = c("PAIRING_DATE", "TO_DATE"), values_to = "DATE") %>% 
      group_by(CREW_ID, TRANSACTION_CODE, DATE, PAIRING_NO) %>% 
      mutate(temp_id = cur_group_id()) %>% 
-     filter(!duplicated(temp_id)) %>%
+     filter(!duplicated(temp_id)) %>% 
      ungroup() %>% 
      group_by(CREW_ID, BASE, PAIRING_NO) %>% 
-     pad() %>% 
+     pad() %>%  # Pads missing dates in multi-day pairings
      ungroup() %>% 
-    mutate(EQUIPMENT = "NA")%>% 
-    rename(PAIRING_DATE = DATE) %>% 
-    select(!c(PAIRING_NO, update_dt, single, name, temp_id)) %>%
-    mutate(TRANSACTION_CODE = if_else(is.na(TRANSACTION_CODE), "ASN", TRANSACTION_CODE))
-    #fill(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_POSITION, BID_PERIOD, BASE, .direction = "down")
-  
-   fa_ut <- rbind(fa_ut_rlv, fa_ut_single, fa_ut_double) %>% 
-       filter(PAIRING_DATE <= raw_date) %>% 
-       mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "RSV", "RLV", TRANSACTION_CODE)) %>% 
-       mutate(EQUIPMENT = "NA") #%>% 
+     mutate(EQUIPMENT = "NA") %>% 
+     rename(PAIRING_DATE = DATE) %>% 
+     select(!c(PAIRING_NO, update_dt, single, name, temp_id)) %>% 
+     mutate(TRANSACTION_CODE = if_else(is.na(TRANSACTION_CODE), "ASN", TRANSACTION_CODE))  # Fills missing transaction codes with "ASN"
+
+  # Combine all processed data
+  fa_ut <- rbind(fa_ut_rlv, fa_ut_single, fa_ut_double) %>% 
+       filter(PAIRING_DATE <= raw_date) %>%  # Filters records where the pairing date is before or on the current date
+       mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "RSV", "RLV", TRANSACTION_CODE)) %>%  #
 
        
   ## Gold Tier Below
