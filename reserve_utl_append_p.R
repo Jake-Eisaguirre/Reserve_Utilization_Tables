@@ -13,8 +13,9 @@ librarian::shelf(tidyverse, here, DBI, odbc, padr)
 current_date <- Sys.Date()  # Set current date to today's date
 week_prior <- current_date - 3  # Set date 3 days prior to today
 week_prior_pairing_date <- current_date - 7  # Set date 7 days prior to today
-previous_bid_period <- substr(as.character((current_date)), 1, 7)  # Get year and month as the previous bid period
-fut_date <- Sys.Date() + 7  # Set a future date (7 days from today)
+previous_bid_period <- substr(as.character((current_date)), 1, 7)
+fut_bid_period <- substr(as.character((current_date + 30)), 1, 7) # Get year and month as the previous bid period
+fut_date <- Sys.Date() + 30  # Set a future date (7 days from today)
 raw_date <- Sys.Date()  # Save today's date as raw_date
 
 # Try to connect to the Snowflake database with tryCatch to handle errors
@@ -70,7 +71,7 @@ pilot_ut_asn <- master_history_raw %>%
 # Query to get master schedule data for the previous bid period
 q_master_sched <- paste0("select CREW_ID, EFFECTIVE_FROM_DATE, EFFECTIVE_TO_DATE, EQUIPMENT, PAIRING_POSITION, BID_DATE,
                    UPDATE_DATE, UPDATE_TIME, BASE, BID_TYPE
-                   from CT_MASTER_SCHEDULE WHERE BID_DATE = '", previous_bid_period, "';")
+                   from CT_MASTER_SCHEDULE WHERE BID_DATE between '", previous_bid_period, "' AND '",fut_bid_period,"';")
 
 # Execute query and read in the master schedule data
 raw_ms <- dbGetQuery(db_connection, q_master_sched)

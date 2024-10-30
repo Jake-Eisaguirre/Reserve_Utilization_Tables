@@ -13,10 +13,10 @@ librarian::shelf(tidyverse, here, DBI, odbc, padr)
 current_date <- Sys.Date()  # Set current date to today's date
 week_prior <- current_date - 3  # Set date 3 days prior to today
 week_prior_pairing_date <- current_date - 7  # Set date 7 days prior to today
-fut_date <- Sys.Date() + 7  # Set a future date (7 days from today)
-previous_bid_period <- substr(as.character((current_date - 30)), 1, 7)  # Get previous month and year
+fut_date <- Sys.Date() + 30  # Set a future date (7 days from today)
+previous_bid_period <- substr(as.character((current_date - 20)), 1, 7) 
+fut_bid_period <- substr(as.character((current_date + 30)), 1, 7)  # Get previous month and year
 update_dt_rlv <- paste0((as.character(previous_bid_period)), "-25 00:00:00")  # Set relevant update date
-raw_date <- Sys.Date()  # Save today's date as raw_date
 
 # Try to connect to the Snowflake database with tryCatch to handle errors
 tryCatch({
