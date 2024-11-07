@@ -11,12 +11,14 @@ librarian::shelf(tidyverse, here, DBI, odbc, padr)
 
 # Define current and related dates for query
 current_date <- Sys.Date()  # Set current date to today's date
-week_prior <- current_date - 3  # Set date 3 days prior to today
+week_prior <- current_date - 10  # Set date 3 days prior to today
 week_prior_pairing_date <- current_date - 7  # Set date 7 days prior to today
-fut_date <- Sys.Date() + 30  # Set a future date (7 days from today)
-previous_bid_period <- substr(as.character((current_date - 20)), 1, 7) 
-fut_bid_period <- substr(as.character((current_date + 30)), 1, 7)  # Get previous month and year
-update_dt_rlv <- paste0((as.character(previous_bid_period)), "-25 00:00:00")  # Set relevant update date
+fut_date_bid <- Sys.Date() + 7 # Set a future date (7 days from today)
+fut_date <- Sys.Date() + 30
+#previous_bid_period <- substr(as.character((current_date - 30)), 1, 7)  # Get previous month and year
+update_dt_rlv <- paste0((as.character(format(seq(fut_date_bid, by = "-1 month", length = 2)[2], "%Y-%m"))), "-25 00:00:00")  # Set relevant update date
+
+ 
 
 # Try to connect to the Snowflake database with tryCatch to handle errors
 tryCatch({
@@ -102,6 +104,8 @@ fa_ut_double <- fa_ut_asn %>%
   select(!c(PAIRING_NO, update_dt, single, name, temp_id)) %>%
   fill(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_POSITION, BID_PERIOD, BASE, .direction = "down")  # Fill missing values
 
+
+
 # Combine flight attendant data (RLV, single, and double) into a single dataset
 fa_ut <- rbind(fa_ut_rlv, fa_ut_single, fa_ut_double) %>%
   filter(PAIRING_DATE <= fut_date) %>%
@@ -154,7 +158,8 @@ final_append_match_cols <- fa_ut %>%
   select(matching_cols)
 
 # Perform an anti-join to find records that need to be appended to the database
-final_append <- anti_join(final_append_match_cols, match_present_fo, by = join_by(PAIRING_POSITION, PAIRING_DATE, BASE, EQUIPMENT))
+final_append <- anti_join(final_append_match_cols, match_present_fo, by = join_by(PAIRING_POSITION, PAIRING_DATE, BASE, EQUIPMENT,
+                                                                                  TRANSACTION_CODE))
 
 # Append the new records to the 'AA_RESERVE_UTILIZATION' table
 dbAppendTable(db_connection_pg, "AA_RESERVE_UTILIZATION", final_append)

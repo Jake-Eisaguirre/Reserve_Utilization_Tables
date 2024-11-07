@@ -11,12 +11,11 @@ librarian::shelf(tidyverse, here, DBI, odbc, padr)
 
 # Define dates for query
 current_date <- Sys.Date()  # Set current date to today's date
-week_prior <- current_date - 3  # Set date 3 days prior to today
+week_prior <- current_date - 10  # Set date 3 days prior to today
 week_prior_pairing_date <- current_date - 7  # Set date 7 days prior to today
 previous_bid_period <- substr(as.character((current_date)), 1, 7)
 fut_bid_period <- substr(as.character((current_date + 30)), 1, 7) # Get year and month as the previous bid period
 fut_date <- Sys.Date() + 30  # Set a future date (7 days from today)
-raw_date <- Sys.Date()  # Save today's date as raw_date
 
 # Try to connect to the Snowflake database with tryCatch to handle errors
 tryCatch({
@@ -126,12 +125,26 @@ asn_single <- emp_hist_p_asn %>%
   rename(PAIRING_DATE = DATE) %>%  # Rename DATE to PAIRING_DATE
   select(!c(PAIRING_NO, single, name, temp_id))  # Drop unnecessary columns
 
+# wrap_time <- master_history_raw %>% 
+#   filter(TRANSACTION_CODE %in% c("ARC", "SCR"),
+#          is.na(PAIRING_NO)) %>% 
+#   mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " "),
+#          wrap_dif = TO_TIME - FROM_TIME) %>% 
+#   group_by(CREW_ID, PAIRING_DATE) %>% 
+#   filter(wrap_dif == max(wrap_dif)) %>% 
+#   ungroup() %>% 
+#   group_by(CREW_ID, PAIRING_DATE, TRANSACTION_CODE) %>% 
+#   mutate(temp_id = cur_group_id()) %>% 
+#   filter(!duplicated(temp_id)) %>% 
+#   ungroup() %>% 
+#   select(CREW_ID, PAIRING_DATE, FROM_TIME, TO_TIME) 
+
 # Combine SCR and ASN (single and double) pilot data into a single dataset
 utl_p <- rbind(emp_hist_p_scr, asn_single, asn_double) %>% 
   ungroup() %>% 
   mutate(BASE = if_else(EQUIPMENT == "717", "HNL", BASE)) %>%  # Set BASE to HNL for 717 equipment
   filter(PAIRING_DATE <= fut_date) %>%  # Filter data up to the future date
-  mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "ACR", "SCR", TRANSACTION_CODE)) %>%  # Replace "ACR" with "SCR"
+  mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "ARC", "SCR", TRANSACTION_CODE)) %>%  # Replace "ACR" with "SCR"
   filter(!EQUIPMENT == "33Y")  # Exclude records with equipment "33Y"
 
   ## Gold Tier Below
@@ -179,7 +192,8 @@ final_append_match_cols <- utl_p %>%
   select(matching_cols)
 
 # Perform an anti-join to find records that need to be appended to the database
-final_append <- anti_join(final_append_match_cols, match_present_fo, by = join_by(PAIRING_POSITION, PAIRING_DATE, EQUIPMENT))
+final_append <- anti_join(final_append_match_cols, match_present_fo, by = join_by(PAIRING_POSITION, PAIRING_DATE, EQUIPMENT, 
+                                                                                  TRANSACTION_CODE))
 
 # Append the new records to the 'AA_RESERVE_UTILIZATION' table
 dbAppendTable(db_connection_pg, "AA_RESERVE_UTILIZATION", final_append)

@@ -38,7 +38,7 @@ dbExecute(db_connection, "USE SCHEMA CREW_ANALYTICS")  # Set the schema to 'CREW
 q_bid_periods <- "SELECT DISTINCT BID_PERIOD FROM CT_MASTER_HISTORY ORDER BY BID_PERIOD DESC;"  # Define query to retrieve distinct bid periods
 bid_periods <- dbGetQuery(db_connection, q_bid_periods) %>%  # Execute query and store results in 'bid_periods'
   filter(BID_PERIOD >= "2023-01",  # Filter for bid periods from January 2023 onwards
-         BID_PERIOD < "2024-10")  # Filter for bid periods before October 2024 - Depends when you build the initial table
+         BID_PERIOD <= "2024-10")  # Filter for bid periods before October 2024 - Depends when you build the initial table
 
 
 
@@ -152,7 +152,7 @@ for (i in seq_along(bid_periods$BID_PERIOD)) {
        mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "ACR", "SCR", TRANSACTION_CODE)) %>%  # Replace 'ACR' with 'SCR'
        filter(!EQUIPMENT == "33Y") %>%  # Exclude pairings with equipment type '33Y'
        ungroup() %>% 
-       mutate(flag = if_else(PAIRING_DATE < "2024-04-31" & EQUIPMENT == "789", 1, 0)) %>%  # Flag certain pairings based on date and equipment
+       mutate(flag = if_else(PAIRING_DATE < 2024-04-31 & EQUIPMENT == "789", 1, 0)) %>%  # Flag certain pairings based on date and equipment
        filter(flag == 0) %>%  # Filter out flagged pairings
        select(!flag)  # Exclude the flag column
      

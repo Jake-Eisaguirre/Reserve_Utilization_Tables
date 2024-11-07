@@ -121,12 +121,12 @@ for (i in seq_along(bid_periods$BID_PERIOD)) {  # Loops through each bid period
      mutate(EQUIPMENT = "NA") %>% 
      rename(PAIRING_DATE = DATE) %>% 
      select(!c(PAIRING_NO, update_dt, single, name, temp_id)) %>% 
-     mutate(TRANSACTION_CODE = if_else(is.na(TRANSACTION_CODE), "ASN", TRANSACTION_CODE))  # Fills missing transaction codes with "ASN"
+     fill(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_POSITION, BID_PERIOD, BASE, .direction = "down")  # Fills missing transaction codes with "ASN"
 
   # Combine all processed data
   fa_ut <- rbind(fa_ut_rlv, fa_ut_single, fa_ut_double) %>% 
        filter(PAIRING_DATE <= raw_date) %>%  # Filters records where the pairing date is before or on the current date
-       mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "RSV", "RLV", TRANSACTION_CODE)) %>%  #
+       mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "RSV", "RLV", TRANSACTION_CODE))  #
 
        
   ## Gold Tier Below
