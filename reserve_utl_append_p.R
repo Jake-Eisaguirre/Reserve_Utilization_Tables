@@ -16,6 +16,7 @@ week_prior_pairing_date <- current_date - 7  # Set date 7 days prior to today
 previous_bid_period <- substr(as.character((current_date)), 1, 7)
 fut_bid_period <- substr(as.character((current_date + 30)), 1, 7) # Get year and month as the previous bid period
 fut_date <- Sys.Date() + 30  # Set a future date (7 days from today)
+#update_dt_rlv <- paste0((as.character(format(seq(fut_date_bid, by = "-1 month", length = 2)[2], "%Y-%m"))), "-21 00:00:00")  # Set relevant update date
 
 # Try to connect to the Snowflake database with tryCatch to handle errors
 tryCatch({
@@ -49,6 +50,7 @@ pilot_ut_scr <- master_history_raw %>%
   filter(CREW_INDICATOR == "P") %>%  # Filter for pilots
   filter(TRANSACTION_CODE %in% c("ARC", "SCR")) %>%  # Filter for ARC and SCR transaction codes
   mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>%  # Create update_dt combining date and time
+  #filter(update_dt < update_dt_rlv) %>%  # Filter for updates before a specific date
   group_by(CREW_ID, PAIRING_DATE, TRANSACTION_CODE) %>%
   mutate(temp_id = cur_group_id()) %>%  # Assign unique ID to each group
   filter(!duplicated(temp_id)) %>%  # Remove duplicates based on temp_id
@@ -192,8 +194,7 @@ final_append_match_cols <- utl_p %>%
   select(matching_cols)
 
 # Perform an anti-join to find records that need to be appended to the database
-final_append <- anti_join(final_append_match_cols, match_present_fo, by = join_by(PAIRING_POSITION, PAIRING_DATE, EQUIPMENT, 
-                                                                                  TRANSACTION_CODE))
+final_append <- anti_join(final_append_match_cols, match_present_fo)
 
 # Append the new records to the 'AA_RESERVE_UTILIZATION' table
 dbAppendTable(db_connection_pg, "AA_RESERVE_UTILIZATION", final_append)

@@ -14,11 +14,11 @@ current_date <- Sys.Date()  # Set current date to today's date
 week_prior <- current_date - 60  # Set date 3 days prior to today
 week_prior_pairing_date <- current_date -50  # Set date 7 days prior to today
 fut_date_bid <- Sys.Date() + 7 # Set a future date (7 days from today)
-fut_date <- Sys.Date() + 30
+fut_date <- Sys.Date() + 10
 #previous_bid_period <- substr(as.character((current_date - 30)), 1, 7)  # Get previous month and year
 update_dt_rlv <- paste0((as.character(format(seq(fut_date_bid, by = "-1 month", length = 2)[2], "%Y-%m"))), "-25 00:00:00")  # Set relevant update date
 
- 
+
 
 # Try to connect to the Snowflake database with tryCatch to handle errors
 tryCatch({
@@ -67,13 +67,36 @@ fa_ut_asn <- master_history_raw %>%
   mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>%  # Create update_dt combining date and time
   filter(CREW_INDICATOR == "FA",
          #update_dt == max(update_dt)
-         ) %>%  # Filter for flight attendants
+  ) %>%  # Filter for flight attendants
   filter(any(TRANSACTION_CODE %in% c("ASN"))) %>%  # Filter for ASN transaction code
   group_by(CREW_ID, PAIRING_DATE, TRANSACTION_CODE, update_dt) %>%
   mutate(temp_id = cur_group_id()) %>%  # Assign unique ID to each group
   filter(!duplicated(temp_id)) %>%  # Remove duplicates based on temp_id
   ungroup() %>%
   select(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_NO, PAIRING_DATE, TO_DATE, PAIRING_POSITION, BID_PERIOD, BASE, update_dt)
+
+#13779 2024-10 bid period logic
+
+# How many Reserves we Paid
+fa_ut_asn <- master_history_raw %>%
+  mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>%  
+  filter(CREW_INDICATOR == "FA") %>%
+  group_by(CREW_ID, PAIRING_DATE) %>%
+  arrange(update_dt) %>%
+  mutate(last_asn_flag = cumsum(TRANSACTION_CODE == "ASN"),
+         is_last_asn = TRANSACTION_CODE == "ASN" & last_asn_flag == max(last_asn_flag)) %>%
+  mutate(after_last_asn = cumsum(is_last_asn) > 0) %>%
+  mutate(sno_una_after_last_asn = any(after_last_asn & TRANSACTION_CODE %in% c("SNO", "UNA", "REM"))) %>%
+  filter(!any(sno_una_after_last_asn)) %>%
+  filter(is_last_asn == TRUE) %>%
+  ungroup() %>%
+  filter(TRANSACTION_CODE %in% c("ASN")) %>%  
+  group_by(CREW_ID, PAIRING_DATE, TRANSACTION_CODE) %>%
+  mutate(temp_id = cur_group_id()) %>%  
+  filter(!duplicated(temp_id)) %>%  # Remove duplicates based on temp_id
+  ungroup() %>%
+  select(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_NO, PAIRING_DATE, TO_DATE, PAIRING_POSITION, BID_PERIOD, BASE, update_dt)
+#SNO, UNA,
 
 
 # Process ASN records for single pairing dates
@@ -106,69 +129,116 @@ fa_ut_double <- fa_ut_asn %>%
   mutate(EQUIPMENT = "NA") %>%
   rename(PAIRING_DATE = DATE) %>%
   select(!c(PAIRING_NO, update_dt, single, name, temp_id)) %>%
-  fill(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_POSITION, BID_PERIOD, BASE, .direction = "down")  # Fill missing values
+  fill(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_POSITION, BID_PERIOD, BASE, .direction = "down") %>% 
+  distinct()# Fill missing values
+
+remove_from_init_count <- fa_ut_double <- fa_ut_asn %>%
+  group_by(CREW_ID, PAIRING_NO) %>%
+  mutate(single = if_else(PAIRING_DATE == TO_DATE, 1, 0)) %>%  # Mark single-day pairings
+  filter(single == 0) %>%  # Filter non-single-day pairings
+  pivot_longer(cols = c("PAIRING_DATE", "TO_DATE"), values_to = "DATE") %>%
+  group_by(CREW_ID, TRANSACTION_CODE, DATE, PAIRING_NO) %>%
+  mutate(temp_id = cur_group_id()) %>%
+  filter(!duplicated(temp_id)) %>%
+  ungroup() %>%
+  group_by(CREW_ID, PAIRING_NO, update_dt) %>%
+  pad() %>%  # Fill missing dates (pad time series)
+  ungroup() %>% 
+  mutate(flag = if_else(name == "TO_DATE" | is.na(name), "1", "0")) %>% 
+  filter(flag == "1") %>% 
+  rename(PAIRING_DATE = DATE)
+
+#available reserves
+
+
+rlv_asn_remove <- rbind(fa_ut_single, fa_ut_double) %>% 
+  group_by(PAIRING_DATE, CREW_ID) %>% 
+  mutate(temp_id = cur_group_id()) %>% 
+  filter(!duplicated(temp_id)) %>% 
+  select(!temp_id) %>% 
+  ungroup()
+
+sd_rlv <- fa_ut_rlv %>% 
+  select(!TRANSACTION_CODE)
+
+sd_asn <- remove_from_init_count %>% 
+  select(!TRANSACTION_CODE)
+
+fa_ut_rlv_filtered <- anti_join(fa_ut_rlv, remove_from_init_count, by = c("CREW_ID", "PAIRING_DATE")) %>% 
+  group_by(PAIRING_DATE, CREW_ID) %>% 
+  mutate(temp_id = cur_group_id()) %>% 
+  filter(!duplicated(temp_id)) %>% 
+  select(!temp_id) %>% 
+  ungroup()
 
 
 
-# Combine flight attendant data (RLV, single, and double) into a single dataset
-fa_ut <- rbind(fa_ut_rlv, fa_ut_single, fa_ut_double) %>%
-  filter(PAIRING_DATE <= fut_date) %>%
+asn_comb <- rbind(fa_ut_rlv_filtered, rlv_asn_remove)
+
+t <- asn_comb %>%
   mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "RSV", "RLV", TRANSACTION_CODE)) %>%
-  mutate(EQUIPMENT = "NA")
-
-#%>% 
-  ## Gold Tier Below
-  
-  # group_by(PAIRING_DATE, BASE, TRANSACTION_CODE) %>% 
-  # summarise(DAILY_COUNT = n()) %>%  # Use summarise() instead of mutate() to avoid repeated counts
-  # ungroup() %>%
-  # pivot_wider(names_from = TRANSACTION_CODE, values_from = DAILY_COUNT) %>%
-  # rename(RLV_SCR = RLV) %>% 
-  # mutate(ASN = if_else(is.na(ASN), 0, ASN)) %>% 
-  # drop_na(RLV_SCR) %>% 
-  # mutate(PERCENT_UTILIZATION = round((ASN / RLV_SCR) * 100, 2)) %>% 
-  # select(PAIRING_DATE, BASE, ASN, RLV_SCR, PERCENT_UTILIZATION) %>% 
-  # mutate(PAIRING_POSITION = "FA") %>% 
-  # relocate(PAIRING_POSITION, .before = PAIRING_DATE) %>% 
-  # relocate(EQUIPMENT, .before = ASN)
+  group_by(PAIRING_DATE, TRANSACTION_CODE) %>%
+  reframe(n = n()) %>% 
+  pivot_wider(
+    names_from = TRANSACTION_CODE, 
+    values_from = n, 
+    values_fill = 0
+  ) %>%
+  mutate(perc_utl = round(ASN / (RLV), 2) *100)
 
 
-# Connect to the 'PLAYGROUND' database with tryCatch to handle errors
-tryCatch({
-  db_connection_pg <- DBI::dbConnect(odbc::odbc(),
-                                     Driver = "SnowflakeDSIIDriver",
-                                     Server = "hawaiianair.west-us-2.azure.snowflakecomputing.com",
-                                     WAREHOUSE = "DATA_LAKE_READER",
-                                     Database = "PLAYGROUND",
-                                     UID = "jacob.eisaguirre@hawaiianair.com",
-                                     authenticator = "externalbrowser")
-  print("Database Connected!")  # Print success message if connected
-}, error = function(cond) {
-  print("Unable to connect to Database.")  # Print error message if connection fails
-})
 
-# Set schema and query the 'AA_RESERVE_UTILIZATION' table
-dbExecute(db_connection_pg, "USE SCHEMA CREW_ANALYTICS")
-present_ut <- dbGetQuery(db_connection_pg, "SELECT * FROM AA_RESERVE_UTILIZATION")
+rlv <- fa_ut_rlv %>% 
+  filter(PAIRING_DATE == "2024-10-20")
 
-# Find matching columns between present data and the new dataset
-matching_cols <- dplyr::intersect(colnames(present_ut), colnames(fa_ut))
+asn <- plyr::rbind.fill(fa_ut_single, fa_ut_double) %>% 
+  group_by(PAIRING_DATE, CREW_ID) %>%
+  mutate(temp_id = cur_group_id()) %>%
+  filter(!duplicated(temp_id)) %>%
+  select(!temp_id) %>%
+  ungroup() %>%
+  filter(PAIRING_DATE == "2024-10-20")
 
-# Select matching columns from the present and new datasets
-match_present_fo <- present_ut %>%
-  select(matching_cols)
+g <- rbind(asn, rlv) %>% 
+  mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "RSV", "RLV", TRANSACTION_CODE)) %>%
+  arrange(CREW_ID) %>% 
+  group_by(CREW_ID, PAIRING_DATE) %>%
+  filter(!(n_distinct(TRANSACTION_CODE) > 1 & TRANSACTION_CODE == "RLV")) %>%
+  ungroup() %>% 
+  group_by(PAIRING_DATE, TRANSACTION_CODE) %>%
+  reframe(n = n()) %>% 
+  pivot_wider(
+    names_from = TRANSACTION_CODE, 
+    values_from = n, 
+    values_fill = 0
+  ) %>%
+  mutate(perc_utl = round(ASN / (RLV), 2) *100)
 
-final_append_match_cols <- fa_ut %>%
-  select(matching_cols)
 
-# Perform an anti-join to find records that need to be appended to the database
-final_append <- anti_join(final_append_match_cols, match_present_fo)
 
-# Append the new records to the 'AA_RESERVE_UTILIZATION' table
-dbAppendTable(db_connection_pg, "AA_RESERVE_UTILIZATION", final_append)
+asn_count <- plyr::rbind.fill(fa_ut_single, fa_ut_double) %>% 
+  group_by(PAIRING_DATE, CREW_ID) %>% 
+  mutate(temp_id = cur_group_id()) %>% 
+  filter(!duplicated(temp_id)) %>% 
+  select(!temp_id) %>% 
+  ungroup() %>% 
+  group_by(PAIRING_DATE) %>% 
+  reframe(number_asn=n()) %>% 
+  ungroup()
 
-# Print the number of rows added and a success message
-print(paste(nrow(final_append), "rows added"))
-Sys.sleep(5)  # Pause for 5 seconds
-print("Script finished successfully!")  # Indicate that the script completed
-Sys.sleep(10)  # Pause for 10 seconds
+rlv_count <- fa_ut_rlv %>% 
+  group_by(PAIRING_DATE) %>% 
+  reframe(number_sched_rlv = n()) %>% 
+  ungroup()
+
+count_comb <- inner_join(rlv_count, asn_count)
+
+perc_utl <- count_comb %>%
+  mutate(
+    number_sched_rlv = as.numeric(number_sched_rlv),
+    number_asn = as.numeric(number_asn),
+    available_reserves = number_sched_rlv - number_asn, # Calculate available reserves
+    percent_utl = round(number_asn / available_reserves, 2) * 100) # Calculate percent utilization
+
+
+
