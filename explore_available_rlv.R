@@ -61,19 +61,21 @@ fa_ut_rlv <- master_history_raw %>%
   mutate(EQUIPMENT = "NA")  # Set EQUIPMENT as "NA"
 
 #Filter data for flight attendants with ASN transaction code and remove duplicates
-fa_ut_asn <- master_history_raw %>%
-  ungroup() %>%
-  group_by(CREW_ID, PAIRING_DATE) %>%
-  mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>%  # Create update_dt combining date and time
-  filter(CREW_INDICATOR == "FA",
-         #update_dt == max(update_dt)
-  ) %>%  # Filter for flight attendants
-  filter(any(TRANSACTION_CODE %in% c("ASN"))) %>%  # Filter for ASN transaction code
-  group_by(CREW_ID, PAIRING_DATE, TRANSACTION_CODE, update_dt) %>%
-  mutate(temp_id = cur_group_id()) %>%  # Assign unique ID to each group
-  filter(!duplicated(temp_id)) %>%  # Remove duplicates based on temp_id
-  ungroup() %>%
-  select(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_NO, PAIRING_DATE, TO_DATE, PAIRING_POSITION, BID_PERIOD, BASE, update_dt)
+# fa_ut_asn <- master_history_raw %>%
+#   ungroup() %>%
+#   group_by(CREW_ID, PAIRING_DATE) %>%
+#   mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>%  # Create update_dt combining date and time
+#   filter(CREW_INDICATOR == "FA",
+#          #update_dt == max(update_dt)
+#   ) %>%  # Filter for flight attendants
+#   filter(any(TRANSACTION_CODE %in% c("ASN"))) %>%  # Filter for ASN transaction code
+#   group_by(CREW_ID, PAIRING_DATE, TRANSACTION_CODE, update_dt) %>%
+#   mutate(temp_id = cur_group_id()) %>%  # Assign unique ID to each group
+#   filter(!duplicated(temp_id)) %>%  # Remove duplicates based on temp_id
+#   ungroup() %>%
+#   select(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_NO, PAIRING_DATE, TO_DATE, PAIRING_POSITION, BID_PERIOD, BASE, update_dt)
+
+
 
 #13779 2024-10 bid period logic
 
@@ -132,6 +134,18 @@ fa_ut_double <- fa_ut_asn %>%
   fill(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_POSITION, BID_PERIOD, BASE, .direction = "down") %>% 
   distinct()# Fill missing values
 
+
+rlv_asn <- rbind(fa_ut_single, fa_ut_double) %>% 
+  group_by(PAIRING_DATE, CREW_ID) %>% 
+  mutate(temp_id = cur_group_id()) %>% 
+  filter(!duplicated(temp_id)) %>% 
+  select(!temp_id) %>% 
+  ungroup()
+
+
+
+## Old
+
 remove_from_init_count <- fa_ut_double <- fa_ut_asn %>%
   group_by(CREW_ID, PAIRING_NO) %>%
   mutate(single = if_else(PAIRING_DATE == TO_DATE, 1, 0)) %>%  # Mark single-day pairings
@@ -186,59 +200,6 @@ t <- asn_comb %>%
   ) %>%
   mutate(perc_utl = round(ASN / (RLV), 2) *100)
 
-
-
-rlv <- fa_ut_rlv %>% 
-  filter(PAIRING_DATE == "2024-10-20")
-
-asn <- plyr::rbind.fill(fa_ut_single, fa_ut_double) %>% 
-  group_by(PAIRING_DATE, CREW_ID) %>%
-  mutate(temp_id = cur_group_id()) %>%
-  filter(!duplicated(temp_id)) %>%
-  select(!temp_id) %>%
-  ungroup() %>%
-  filter(PAIRING_DATE == "2024-10-20")
-
-g <- rbind(asn, rlv) %>% 
-  mutate(TRANSACTION_CODE = if_else(TRANSACTION_CODE == "RSV", "RLV", TRANSACTION_CODE)) %>%
-  arrange(CREW_ID) %>% 
-  group_by(CREW_ID, PAIRING_DATE) %>%
-  filter(!(n_distinct(TRANSACTION_CODE) > 1 & TRANSACTION_CODE == "RLV")) %>%
-  ungroup() %>% 
-  group_by(PAIRING_DATE, TRANSACTION_CODE) %>%
-  reframe(n = n()) %>% 
-  pivot_wider(
-    names_from = TRANSACTION_CODE, 
-    values_from = n, 
-    values_fill = 0
-  ) %>%
-  mutate(perc_utl = round(ASN / (RLV), 2) *100)
-
-
-
-asn_count <- plyr::rbind.fill(fa_ut_single, fa_ut_double) %>% 
-  group_by(PAIRING_DATE, CREW_ID) %>% 
-  mutate(temp_id = cur_group_id()) %>% 
-  filter(!duplicated(temp_id)) %>% 
-  select(!temp_id) %>% 
-  ungroup() %>% 
-  group_by(PAIRING_DATE) %>% 
-  reframe(number_asn=n()) %>% 
-  ungroup()
-
-rlv_count <- fa_ut_rlv %>% 
-  group_by(PAIRING_DATE) %>% 
-  reframe(number_sched_rlv = n()) %>% 
-  ungroup()
-
-count_comb <- inner_join(rlv_count, asn_count)
-
-perc_utl <- count_comb %>%
-  mutate(
-    number_sched_rlv = as.numeric(number_sched_rlv),
-    number_asn = as.numeric(number_asn),
-    available_reserves = number_sched_rlv - number_asn, # Calculate available reserves
-    percent_utl = round(number_asn / available_reserves, 2) * 100) # Calculate percent utilization
 
 
 
