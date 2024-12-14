@@ -46,19 +46,44 @@ master_history_raw <- dbGetQuery(db_connection, q_master_history) %>%
   mutate(UPDATE_TIME = as.character(UPDATE_TIME),
          UPDATE_DATE = as.character(UPDATE_DATE))
 
+fa_ut_rlv_list <- master_history_raw %>%
+  filter(CREW_INDICATOR == "FA") %>%  # Filter for flight attendants
+  filter(any(TRANSACTION_CODE %in% c("RSV", "RLV"))) %>%  # Filter for RSV and RLV transaction codes
+  mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>%  # Create update_dt combining date and time
+  filter(update_dt < update_dt_rlv) %>% 
+  select(CREW_ID, PAIRING_DATE) %>% 
+  distinct()
+
+
+
 # Filter data for flight attendants with transaction codes (RSV, RLV) and remove duplicates
 fa_ut_rlv <- master_history_raw %>%
-  ungroup() %>%
-  filter(CREW_INDICATOR == "FA") %>%  # Filter for flight attendants
-  filter(TRANSACTION_CODE %in% c("RSV", "RLV")) %>%  # Filter for RSV and RLV transaction codes
-  mutate(update_dt = paste(UPDATE_DATE, UPDATE_TIME, sep = " ")) %>%  # Create update_dt combining date and time
-  filter(update_dt < update_dt_rlv) %>%  # Filter for updates before a specific date
+  filter(CREW_INDICATOR == "FA",
+         CREW_ID %in% fa_ut_rlv_list$CREW_ID,
+         PAIRING_DATE %in% fa_ut_rlv_list$PAIRING_DATE) %>% 
+  group_by(CREW_ID, PAIRING_DATE) %>% 
+  filter(any(TRANSACTION_CODE %in% c("RLV", "RSV"))) %>%  # Filter for RSV and RLV transaction codes
+  mutate(update_dt = as.POSIXct(paste(UPDATE_DATE, UPDATE_TIME, sep = " "), format = "%Y-%m-%d %H:%M:%S")) %>%  
+  arrange(update_dt) %>%  # Arrange by update timestamp
+  mutate(
+    # Identify if RLV occurs
+    has_rlv = cumsum(TRANSACTION_CODE == "RLV") > 0,
+    # Create a flag if SNO/GDO/OFF occurs after RLV
+    occurs_after_rlv = any(has_rlv & lag(TRANSACTION_CODE %in% c("SNO", "GDO", "OFF"), default = FALSE))
+  ) %>%
+  # Remove groups where the condition is met
+  filter(!occurs_after_rlv == TRUE) %>%
+  ungroup() %>% 
+  filter(TRANSACTION_CODE %in% c("RLV", "RSV")) %>%# Filter for updates before a specific date
   group_by(CREW_ID, PAIRING_DATE, TRANSACTION_CODE) %>%
   mutate(temp_id = cur_group_id()) %>%  # Assign unique ID to each group
   filter(!duplicated(temp_id)) %>%  # Remove duplicates based on temp_id
   ungroup() %>%
   select(CREW_INDICATOR, CREW_ID, TRANSACTION_CODE, PAIRING_DATE, PAIRING_POSITION, BID_PERIOD, BASE) %>%  # Select relevant columns
   mutate(EQUIPMENT = "NA")  # Set EQUIPMENT as "NA"
+  
+  
+#SNO, GDO, OFF
 
 #Filter data for flight attendants with ASN transaction code and remove duplicates
 # fa_ut_asn <- master_history_raw %>%
@@ -135,18 +160,10 @@ fa_ut_double <- fa_ut_asn %>%
   distinct()# Fill missing values
 
 
-rlv_asn <- rbind(fa_ut_single, fa_ut_double) %>% 
-  group_by(PAIRING_DATE, CREW_ID) %>% 
-  mutate(temp_id = cur_group_id()) %>% 
-  filter(!duplicated(temp_id)) %>% 
-  select(!temp_id) %>% 
-  ungroup()
-
-
 
 ## Old
 
-remove_from_init_count <- fa_ut_double <- fa_ut_asn %>%
+remove_from_init_count <- fa_ut_asn %>%
   group_by(CREW_ID, PAIRING_NO) %>%
   mutate(single = if_else(PAIRING_DATE == TO_DATE, 1, 0)) %>%  # Mark single-day pairings
   filter(single == 0) %>%  # Filter non-single-day pairings
@@ -171,12 +188,6 @@ rlv_asn_remove <- rbind(fa_ut_single, fa_ut_double) %>%
   filter(!duplicated(temp_id)) %>% 
   select(!temp_id) %>% 
   ungroup()
-
-sd_rlv <- fa_ut_rlv %>% 
-  select(!TRANSACTION_CODE)
-
-sd_asn <- remove_from_init_count %>% 
-  select(!TRANSACTION_CODE)
 
 fa_ut_rlv_filtered <- anti_join(fa_ut_rlv, remove_from_init_count, by = c("CREW_ID", "PAIRING_DATE")) %>% 
   group_by(PAIRING_DATE, CREW_ID) %>% 
